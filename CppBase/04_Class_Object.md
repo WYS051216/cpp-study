@@ -406,3 +406,195 @@ public:
     }
 };
 ```
+### 14.4 赋值运算符重载 (`operator=`)
+* **致命陷阱**：C++ 编译器会给一个类添加默认的赋值运算符 `=`，但它做的是**简单的值拷贝（浅拷贝）**。如果类中有指针并在堆区开辟了内存，直接使用 `a = b` 会导致堆区内存重复释放（Double Free）和内存泄漏！
+* **解决办法**：必须重写赋值运算符，利用**深拷贝**解决问题。
+
+```cpp
+class Person {
+public:
+    int* m_Age;
+    Person(int age) { m_Age = new int(age); }
+    ~Person() {
+        if (m_Age != NULL) {
+            delete m_Age;
+            m_Age = NULL;
+        }
+    }
+
+    // 重载赋值运算符
+    Person& operator=(const Person& p) {
+        // 1. 先判断自身是否有在堆区的数据，如果有，先释放干净
+        if (m_Age != NULL) {
+            delete m_Age;
+            m_Age = NULL;
+        }
+        // 2. 重新开辟内存，进行深拷贝
+        m_Age = new int(*p.m_Age);
+        // 3. 返回对象本身，以支持连等操作 (a = b = c)
+        return *this; 
+    }
+};
+```
+
+### 14.5 关系运算符重载 (`==` 和 `!=`)
+* **作用**：让自定义的类对象也能像基本数据类型一样，进行相等或不等的条件判断。
+
+```cpp
+class Person {
+public:
+    string m_Name;
+    int m_Age;
+    Person(string name, int age) : m_Name(name), m_Age(age) {}
+
+    // 重载 == 运算符
+    bool operator==(const Person& p) {
+        return (this->m_Name == p.m_Name && this->m_Age == p.m_Age);
+    }
+    // 重载 != 运算符
+    bool operator!=(const Person& p) {
+        return (this->m_Name != p.m_Name || this->m_Age != p.m_Age);
+    }
+};
+```
+
+### 14.6 函数调用运算符重载 (`operator()`)
+* **概念**：重载了括号 `()` 之后，对象使用起来非常像一个普通的函数调用，因此被称为**仿函数 (Functor)**。
+* **特点**：仿函数没有固定写法，非常灵活。
+
+```cpp
+class MyPrint {
+public:
+    // 重载 () 运算符
+    void operator()(string text) {
+        cout << text << endl;
+    }
+};
+
+class MyAdd {
+public:
+    int operator()(int v1, int v2) {
+        return v1 + v2;
+    }
+};
+
+void test() {
+    MyPrint myPrint;
+    myPrint("Hello 仿函数!"); // 看起来像调用函数，其实是对象在调用重载的 operator()
+
+    // 匿名函数对象调用：类名() 产生匿名对象，紧接着 (10, 20) 调用仿函数
+    cout << "相加结果: " << MyAdd()(10, 20) << endl; 
+    // 特点：当前行执行完毕后，匿名对象立即被销毁
+}
+```
+
+---
+
+## 15. 继承 (Inheritance) 基础
+* **核心好处**：抽取共性，减少重复的代码。
+* **基本语法**：`class 子类名 : 继承方式 父类名 { };` 
+  * (子类也叫**派生类**，父类也叫**基类**)
+
+### 15.1 继承方式与权限映射
+
+无论哪种继承方式，父类中的 `private` 私有成员，子类统统**访问不到**（被隐藏了）。
+* **公共继承 (`public`)**：父类的 `public` 变子类的 `public`，父类的 `protected` 变子类的 `protected`。
+* **保护继承 (`protected`)**：父类的 `public` 和 `protected`，到了子类中统统变成 `protected`（类外无法访问）。
+* **私有继承 (`private`)**：父类的 `public` 和 `protected`，到了子类中统统变成 `private`。
+
+```cpp
+class Base {
+public:    int m_A;
+protected: int m_B;
+private:   int m_C; // 私有成员，子类绝对拿不到
+};
+
+// 以 Public 方式继承
+class Son : public Base {
+public:
+    void func() {
+        m_A = 10; // ✅ 依然是 public
+        m_B = 20; // ✅ 依然是 protected
+        // m_C = 30; // ❌ 报错！父类私有成员不可访问
+    }
+};
+```
+
+---
+
+## 16. 继承中的底层机制
+
+### 16.1 继承中的对象模型
+
+* **核心考点**：父类中**所有**的非静态成员属性（哪怕是 `private` 的）都会被子类继承下去！子类创建对象所占的内存字节数，包含了父类所有的属性。只是编译器把父类的私有成员隐藏了，不让你直接调用而已。
+* **开发者工具查看底层**：
+  打开 VS 开发人员命令提示符，跳转到对应盘符和目录，输入命令：
+  `cl /d1 reportSingleClassLayout类名 文件名.cpp`
+
+### 16.2 构造和析构的调用顺序
+子类继承父类后，创建和销毁子类对象时，会牵连父类的构造与析构。
+* **口诀**：**先有父再有子，先送子再送父**。（就像建房子，先打地基再盖楼；拆房子，先拆楼再挖地基）。
+* **顺序**：父类构造 ➡️ 子类构造 ➡️ 子类析构 ➡️ 父类析构。
+
+---
+
+## 17. 继承中的同名处理机制 (重名隐藏规则)
+当子类和父类出现了同名的成员（变量或函数）时，如何区分到底调用的是谁？
+
+### 17.1 同名非静态成员处理
+* **访问子类自身**：直接访问即可。（默认就近原则）
+* **访问父类成员**：必须加上**父类的作用域** (`父类名::`)。
+* **🔥 隐藏规则大坑**：如果子类中出现和父类同名的成员函数，子类会**隐藏**掉父类中**所有**同名成员函数（包括重载的版本）。想访问被隐藏的父类函数，必须加作用域！
+
+```cpp
+class Base {
+public:
+    int m_A = 100;
+    void func() { cout << "Base 的 func()" << endl; }
+};
+
+class Son : public Base {
+public:
+    int m_A = 200;
+    void func() { cout << "Son 的 func()" << endl; }
+};
+
+void test() {
+    Son s;
+    cout << "子类的 m_A: " << s.m_A << endl;       // 输出 200
+    cout << "父类的 m_A: " << s.Base::m_A << endl; // 输出 100，加作用域穿透！
+    
+    s.func();       // 调用子类的 func
+    s.Base::func(); // 调用父类的 func
+}
+```
+
+### 17.2 同名静态成员处理
+静态成员处理方式和非静态完全一样，只是因为静态成员全类共享，所以多了一种**“通过类名访问”**的方式。
+
+```cpp
+class Base {
+public:
+    static int m_A;
+};
+int Base::m_A = 100;
+
+class Son : public Base {
+public:
+    static int m_A;
+};
+int Son::m_A = 200;
+
+void testStatic() {
+    // 方式一：通过对象访问 (和非静态一样)
+    Son s;
+    cout << s.m_A << endl;       // 200
+    cout << s.Base::m_A << endl; // 100
+
+    // 方式二：通过类名直接访问 (因为不需要实例化对象)
+    cout << Son::m_A << endl;       // 200
+    // 🔥 极其酷炫的连续作用域写法：
+    // 第一个 Son:: 代表通过子类类名访问，第二个 Base:: 代表指明是父类作用域下的 m_A
+    cout << Son::Base::m_A << endl; // 100
+}
+```
