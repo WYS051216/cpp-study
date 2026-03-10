@@ -598,3 +598,263 @@ void testStatic() {
     cout << Son::Base::m_A << endl; // 100
 }
 ```
+# 📝 C++ 面向对象终极篇：多继承、菱形继承与多态
+
+## 18. 多继承语法
+* **语法**：`class 子类 : 继承方式 父类1, 继承方式 父类2 { ... };`
+* **⚠️ 实际开发避坑**：多继承极易引发父类中有同名成员出现，导致调用时的二义性问题。如果出现同名，必须加**作用域**区分。因此在实际工程架构中，**极其不建议使用多继承**（一般用单继承 + 多个纯虚接口来代替）。
+
+### 💻 代码示例：多继承与作用域区分
+```cpp
+class Base1 {
+public:
+    int m_A = 100;
+};
+
+class Base2 {
+public:
+    int m_A = 200; // 与 Base1 同名
+};
+
+// 多继承语法
+class Son : public Base1, public Base2 {
+public:
+    int m_C = 300;
+};
+
+void testMultiInheritance() {
+    Son s;
+    // cout << s.m_A << endl; // ❌ 报错：二义性，编译器不知道你调哪个 m_A
+    cout << "Base1 的 m_A: " << s.Base1::m_A << endl; // ✅ 必须加作用域
+    cout << "Base2 的 m_A: " << s.Base2::m_A << endl; // ✅ 必须加作用域
+}
+```
+
+---
+
+## 19. 菱形继承 (钻石继承)
+
+* **概念**：有两个派生类继承同一个基类，同时又有某个类同时继承着这两个派生类（比如：羊继承动物，驼继承动物，羊驼继承了羊和驼）。
+* **问题**：羊驼会继承两份动物的数据（比如 `m_Age`），导致数据冗余和二义性。
+* **终极解决办法**：利用**虚继承 (`virtual`)** 可以解决菱形继承的问题。在继承之前加上 `virtual` 关键字，最顶层的基类就变成了**虚基类**。底层会通过虚基类指针（vbptr）指向唯一的共享数据。
+
+### 💻 代码示例：虚继承解决菱形继承
+```cpp
+class Animal {
+public:
+    int m_Age;
+};
+
+// 关键步骤：加上 virtual 变成虚继承
+class Sheep : virtual public Animal {}; 
+class Tuo : virtual public Animal {};   
+
+// 羊驼多继承羊和驼
+class SheepTuo : public Sheep, public Tuo {};
+
+void testDiamondInheritance() {
+    SheepTuo st;
+    st.Sheep::m_Age = 18;
+    st.Tuo::m_Age = 28;
+
+    // 因为是虚继承，现在 Animal 里的 m_Age 只有一份共享数据！
+    // 最后一次赋值是 28，所以现在年龄就是 28。
+    cout << "羊驼的年龄是: " << st.m_Age << endl; // 不再有二义性，直接访问即可！
+}
+```
+
+---
+
+## 20. 多态 (Polymorphism) —— 面向对象的核心灵魂
+
+多态分为两类：
+* **静态多态**：函数重载和运算符重载。（**早绑定**：在编译阶段就已经确定了函数的地址）。
+* **动态多态**：派生类和虚函数实现运行时多态。（**晚绑定**：在运行阶段才去确定具体调用哪个函数的地址）。
+
+### 20.1 多态满足条件与使用原则
+* **满足条件**：
+  1. 必须有继承关系。
+  2. 子类必须**重写**父类中的虚函数（`virtual`）。
+     * *注：重写是指函数返回值类型、函数名、参数列表完全一致。此时子类中的虚函数表内部会替换成子类的虚函数地址。*
+* **使用核心机制**：**父类指针或引用指向子类对象**。
+* **多态的好处**：代码组织结构极其清晰；可读性强；符合“开闭原则”（对扩展开放，对修改关闭），后期扩展和维护性极高！
+
+### 💻 代码示例：多态实战 (卡牌游戏出牌逻辑)
+```cpp
+#include <iostream>
+using namespace std;
+
+// 1. 定义一个父类（玩家类）
+class Player {
+public:
+    // 关键：加上 virtual 关键字，实现晚绑定！
+    virtual void playCard() {
+        cout << "普通玩家出了一张未知牌" << endl;
+    }
+};
+
+// 2. 子类（地主）重写父类虚函数
+class Landlord : public Player {
+public:
+    void playCard() { // 重写时子类的 virtual 可写可不写
+        cout << "【地主】嚣张地打出了一副王炸！" << endl;
+    }
+};
+
+// 3. 子类（农民）重写父类虚函数
+class Peasant : public Player {
+public:
+    void playCard() {
+        cout << "【农民】瑟瑟发抖地出了一个 3..." << endl;
+    }
+};
+
+// 🌟 多态的威力所在：统一的业务接口！
+// 只要形参是父类指针，你传什么子类对象进来，它就执行对应子类的代码 (指哪打哪)
+void doPlay(Player* p) {
+    p->playCard(); 
+}
+
+void testPolymorphism() {
+    Landlord boss;
+    Peasant worker;
+
+    // 父类指针指向子类对象，触发多态！
+    doPlay(&boss);   // 输出：【地主】嚣张地打出了一副王炸！
+    doPlay(&worker); // 输出：【农民】瑟瑟发抖地出了一个 3...
+}
+```
+
+---
+
+## 21. 纯虚函数和抽象类
+在多态中，通常父类中虚函数的具体实现是毫无意义的（比如上面 `Player` 里的 `playCard`，主要都是调用子类重写的内容）。因此，我们可以将它改为**纯虚函数**。
+
+* **纯虚函数语法**：`virtual 返回值类型 函数名(参数列表) = 0;`
+* **抽象类**：当类中只要有**一个或多个**纯虚函数，这个类就直接被称为**抽象类**。
+* **抽象类核心特点**：
+  1. **绝对无法实例化对象**（不能用它直接创建具体的变量，也不能 `new` 它）。
+  2. 子类**必须重写**抽象类中的纯虚函数，否则子类也依然是抽象类，同样无法实例化！
+
+### 💻 代码示例：纯虚函数与抽象类
+```cpp
+// 抽象类（相当于定义了一套必须遵守的接口规则）
+class AbstractCalculator {
+public:
+    int m_Num1;
+    int m_Num2;
+
+    // 纯虚函数：我只定规矩，不写实现。强制要求子类去实现！
+    virtual int getResult() = 0; 
+};
+
+// 加法计算器类（子类）
+class AddCalculator : public AbstractCalculator {
+public:
+    // 必须重写纯虚函数，否则此类无法使用
+    int getResult() {
+        return m_Num1 + m_Num2;
+    }
+};
+
+// 减法计算器类（子类）
+class SubCalculator : public AbstractCalculator {
+public:
+    int getResult() {
+        return m_Num1 - m_Num2;
+    }
+};
+
+void testAbstractClass() {
+    // AbstractCalculator ac; // ❌ 报错！抽象类无法实例化对象！
+
+    // 多态应用：父类指针指向子类对象
+    AbstractCalculator* calc = new AddCalculator; 
+    calc->m_Num1 = 100;
+    calc->m_Num2 = 200;
+    cout << "加法结果: " << calc->getResult() << endl; // 输出 300
+    delete calc; // 释放堆区内存
+
+    calc = new SubCalculator;
+    calc->m_Num1 = 100;
+    calc->m_Num2 = 200;
+    cout << "减法结果: " << calc->getResult() << endl; // 输出 -100
+    delete calc;
+}
+```
+## 22. 💣 多态的终极大坑：虚析构和纯虚析构
+在多态的使用场景中（父类指针指向子类对象），如果子类中有属性开辟到了堆区（使用了 `new`），当释放父类指针时，**编译器默认只会调用父类的析构函数，而无法调用子类的析构代码**。
+* **灾难后果**：子类在堆区申请的内存得不到释放，导致严重的内存泄漏（服务器一直跑，内存一直涨，最后直接宕机崩溃）！
+* **终极解法**：将父类中的析构函数改为**虚析构**或者**纯虚析构**。
+
+### 22.1 虚析构与纯虚析构的共性与区别
+* **共性**：
+  1. 都可以完美解决父类指针释放子类对象时不干净的问题（让子类的析构函数得以顺利执行）。
+  2. **都需要有具体的函数实现**。（即使是纯虚析构，也必须在类外写具体的代码块！因为父类自己也可能有需要释放的数据）。
+* **区别**：
+  1. 如果类中包含了纯虚析构，那么这个类就变成了**抽象类**，绝对无法实例化对象。
+
+### 22.2 语法规范
+* **虚析构语法**：`virtual ~类名() { // 具体实现 }`
+* **纯虚析构语法**：
+  * 类内声明：`virtual ~类名() = 0;`
+  * 类外实现：`类名::~类名() { // 具体实现 }`
+
+### 💻 代码示例：虚析构挽救内存泄漏 (斗地主玩家断线回收)
+```cpp
+#include <iostream>
+#include <string>
+using namespace std;
+
+// 抽象父类：玩家接口
+class Player {
+public:
+    Player() { cout << "Player 构造函数调用" << endl; }
+    
+    virtual void playCard() = 0; // 纯虚函数
+
+    // 🌟 核心：纯虚析构声明 (不加 virtual 的话，子类的析构绝对不会被调用！)
+    virtual ~Player() = 0; 
+};
+
+// ⚠️ 极其容易踩坑的重点：纯虚析构必须在类外有具体的实现！
+// 因为父类也有可能在堆区开了内存，析构时需要连父类的逻辑一起清理
+Player::~Player() {
+    cout << "Player 纯虚析构函数调用" << endl;
+}
+
+// 子类：地主玩家
+class Landlord : public Player {
+public:
+    string* m_HandCards; // 假设手牌数据开辟在堆区
+
+    Landlord(string name) {
+        cout << "Landlord 构造函数调用" << endl;
+        m_HandCards = new string(name); // 在堆区给手牌分配内存
+    }
+
+    void playCard() override {
+        cout << *m_HandCards << " 打出了王炸！" << endl;
+    }
+
+    // 子类的析构函数，专门负责清理地主自己的堆区数据
+    ~Landlord() {
+        if (m_HandCards != NULL) {
+            delete m_HandCards;
+            m_HandCards = NULL;
+        }
+        cout << "Landlord 析构函数调用，成功清理堆区手牌内存！" << endl;
+    }
+};
+
+void testVirtualDestructor() {
+    // 多态：父类指针指向子类对象
+    Player* p = new Landlord("嚣张的地主");
+    p->playCard();
+
+    // 准备释放内存
+    // 如果父类的析构不是虚析构，这里 delete p 只会打印 "Player 析构"，导致 Landlord 内存泄漏！
+    // 加了虚析构后，会先调用 Landlord 的析构，再调用 Player 的析构，完美回收！
+    delete p; 
+}
+```
